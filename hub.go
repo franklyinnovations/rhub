@@ -3,6 +3,7 @@ package rhub
 import (
 	"encoding/json"
 	"fmt"
+	"runtime/debug"
 	"time"
 
 	"github.com/gomodule/redigo/redis"
@@ -29,6 +30,7 @@ type Hub struct {
 	filters    []Filter
 	handlers   map[string]Handler
 	handlerWs  map[string]HandlerWs
+	tick       *time.Ticker
 	ticker     func(int)
 	// hubs       *Hubs
 	self IHub
@@ -56,6 +58,7 @@ func NewHub(id interface{}, redisConStr, redisChannel string) IHub {
 		closeChan:    make(chan struct{}),
 		handlers:     make(map[string]Handler),
 		handlerWs:    make(map[string]HandlerWs),
+		tick:         time.NewTicker(time.Second),
 		id:           id,
 		// psc:           redis.PubSubConn{Conn: redisConSub},
 	}
@@ -64,7 +67,14 @@ func NewHub(id interface{}, redisConStr, redisChannel string) IHub {
 }
 
 func (h *Hub) Run() {
-	tick := time.NewTicker(time.Second)
+
+	defer func() {
+		if err := recover(); err != nil {
+			fmt.Println(err)
+			debug.PrintStack()
+			h.Run()
+		}
+	}()
 	for {
 		select {
 		case client := <-h.register:
@@ -94,17 +104,15 @@ func (h *Hub) Run() {
 				h.SendRedis("leave", nil, client.GetProps())
 			}
 		case msg := <-h.redisMessage:
-			fmt.Println("onredismessage:", msg)
 			h.onRedisMessage(msg)
 		case message := <-h.message:
-			fmt.Println("wsmessage:", message)
 			if nil != h.beforeWsMsg && !h.beforeWsMsg(message) {
 				continue
 			}
 			h.onWsMessage(message)
 		case <-h.closeChan:
 			return
-		case <-tick.C:
+		case <-h.tick.C:
 			h.seconds++
 			if h.ticker != nil {
 				h.ticker(h.seconds)
@@ -138,18 +146,16 @@ func (h *Hub) ResetRedis() error {
 }
 func (h *Hub) initRedisMessageChannel() {
 	for {
-		fmt.Println("Wait for msg")
 		switch v := h.psc.Receive().(type) {
 		case redis.Message:
 			if h.redisResetCount > 0 {
 				h.redisResetCount = 0
 			}
-			fmt.Printf("%s: message: %s\n", v.Channel, v.Data)
 			var msg RedisHubMessage
 			json.Unmarshal(v.Data, &msg)
 			h.redisMessage <- &msg
 		case redis.Subscription:
-			fmt.Printf("%s: %s %d\n", v.Channel, v.Kind, v.Count)
+			// fmt.Printf("%s: %s %d\n", v.Channel, v.Kind, v.Count)
 		case error:
 			if !h.closed {
 				sleepTime := time.Duration(h.redisResetCount) * time.Second
@@ -190,13 +196,19 @@ func (h *Hub) SendRedisRaw(msg *HubMessageIn, props map[string]interface{}) {
 	var rmsg RedisHubMessage
 	rmsg.HubMessageIn = msg
 	rmsg.Props = props
-	bs, _ := json.Marshal(rmsg)
-	fmt.Println("SendRedisRaw:", string(bs))
-	_, err := h.redisConPub.Do("PUBLISH", h.redisChannel, string(bs))
-	// h.redisCon.Flush()
-	if nil != err {
-		fmt.Println("Send err", err)
+	bs, err := json.Marshal(rmsg)
+	if err != nil {
+		panic(err)
 	}
+	_, err = h.redisConPub.Do("PUBLISH", h.redisChannel, string(bs))
+	if err != nil {
+		panic(err)
+	}
+	// h.redisCon.Flush()
+	// if nil != err {
+	// 	fmt.Println("Send err", err)
+	// }
+	// return err
 }
 func (h *Hub) SendRedis(subject string, data interface{}, props map[string]interface{}) {
 	dataBs, _ := json.Marshal(data)
@@ -283,6 +295,7 @@ func (h *Hub) Close() {
 	close(h.message)
 	close(h.redisMessage)
 	close(h.closeChan)
+	h.tick.Stop()
 	h.redisConPub.Close()
 	h.redisConSub.Close()
 	h.closed = true

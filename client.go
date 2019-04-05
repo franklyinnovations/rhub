@@ -38,7 +38,7 @@ var (
 // Client is a middleman between the websocket connection and the hub.
 type Client struct {
 	hub    IHub
-	Config WsConfig
+	config WsConfig
 
 	// The websocket connection.
 	conn *websocket.Conn
@@ -50,12 +50,13 @@ type Client struct {
 	// user       interface{}
 }
 
-func NewClient(conn *websocket.Conn, hub IHub) IClient {
+func NewClient(conn *websocket.Conn, hub IHub, config WsConfig) IClient {
 	client := &Client{
-		hub:   hub,
-		conn:  conn,
-		send:  make(chan []byte, 256),
-		Props: make(map[string]interface{}),
+		hub:    hub,
+		config: config,
+		conn:   conn,
+		send:   make(chan []byte, 256),
+		Props:  make(map[string]interface{}),
 	}
 
 	return client
@@ -75,9 +76,9 @@ func (c *Client) ReadPump() {
 		c.hub.UnregisterChan() <- c
 		c.conn.Close()
 	}()
-	c.conn.SetReadLimit(c.Config.MaxMessageSize)
-	c.conn.SetReadDeadline(time.Now().Add(c.Config.PongWait))
-	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(c.Config.PongWait)); return nil })
+	c.conn.SetReadLimit(c.config.MaxMessageSize)
+	c.conn.SetReadDeadline(time.Now().Add(c.config.PongWait))
+	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(c.config.PongWait)); return nil })
 	for {
 		_, message, err := c.conn.ReadMessage()
 		if err != nil {
@@ -104,7 +105,7 @@ func (c *Client) ReadPump() {
 // application ensures that there is at most one writer to a connection by
 // executing all writes from this goroutine.
 func (c *Client) WritePump() {
-	ticker := time.NewTicker(c.Config.pingPeriod)
+	ticker := time.NewTicker(c.config.pingPeriod)
 	defer func() {
 		fmt.Println("WritePump close")
 		ticker.Stop()
@@ -113,7 +114,7 @@ func (c *Client) WritePump() {
 	for {
 		select {
 		case message, ok := <-c.send:
-			c.conn.SetWriteDeadline(time.Now().Add(c.Config.WriteWait))
+			c.conn.SetWriteDeadline(time.Now().Add(c.config.WriteWait))
 			if !ok {
 				// The hub closed the channel.
 				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
@@ -137,7 +138,7 @@ func (c *Client) WritePump() {
 				return
 			}
 		case <-ticker.C:
-			c.conn.SetWriteDeadline(time.Now().Add(c.Config.WriteWait))
+			c.conn.SetWriteDeadline(time.Now().Add(c.config.WriteWait))
 			if err := c.conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
 				return
 			}
@@ -225,7 +226,7 @@ func ServeWs(hub IHub, w http.ResponseWriter, r *http.Request, clientKeyValues m
 		log.Println(err)
 		return
 	}
-	client := NewClient(conn, hub)
+	client := NewClient(conn, hub, config)
 	props := client.GetProps()
 	if nil != clientKeyValues {
 		for k, v := range clientKeyValues {
