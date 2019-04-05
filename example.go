@@ -1,10 +1,31 @@
 package rhub
 
 import (
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 )
+
+type Conf struct {
+	Redis string
+}
+
+var conf Conf
+
+func init() {
+	bs, err := ioutil.ReadFile("test.conf")
+	if err != nil {
+		fmt.Println("no test.conf in cwd")
+		return
+	}
+	err = json.Unmarshal(bs, &conf)
+	if err != nil {
+		fmt.Println(err)
+	}
+	fmt.Println(conf)
+}
 
 func serveHome(w http.ResponseWriter, r *http.Request) {
 	log.Println(r.URL)
@@ -24,20 +45,7 @@ type User struct {
 }
 
 func startServer() {
-	hub := NewHub(1, "redis://test.iqidao.com:50002/0", "test-room-1")
-	// hub.BeforeJoin(func(client IClient) error {
-	// 	return nil
-	// })
-	// hub.Use(func(m *ClientHubMessage, next func()) {
-	// 	fmt.Printf("use before %+v\n", m)
-	// 	next()
-	// 	fmt.Printf("user after %+v\n", m)
-	// })
-	// hub.Use(func(m *ClientHubMessage, next func()) {
-	// 	fmt.Printf("use before2 %+v\n", m)
-	// 	next()
-	// 	fmt.Printf("user after2 %+v\n", m)
-	// })
+	hub := NewHub(1, conf.Redis, "test-room-1")
 	hub.On("join", func(m *RedisHubMessage) {
 		fmt.Println("join", *m)
 	})
@@ -62,8 +70,7 @@ func startServer() {
 	http.HandleFunc("/", serveHome)
 	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		clientProp := map[string]interface{}{"user": &User{Name: "jim"}}
-		upgrader = DefaultUpgrader()
-		ServeWs(hub, w, r, clientProp, upgrader)
+		ServeWs(hub, w, r, clientProp, DefaultUpgrader(), DefaultWsConfig())
 	})
 	fmt.Println("start server al 8080")
 	err := http.ListenAndServe(":8080", nil)

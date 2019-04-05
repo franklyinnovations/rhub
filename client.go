@@ -11,19 +11,24 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-const (
-	// Time allowed to write a message to the peer.
-	writeWait = 10 * time.Second
+// const (
+// 	// Time allowed to write a message to the peer.
+// 	writeWait = 10 * time.Second
 
-	// Time allowed to read the next pong message from the peer.
-	PongWait = 20 * time.Second
+// 	// Time allowed to read the next pong message from the peer.
+// 	PongWait = 20 * time.Second
 
-	// Send pings to peer with this period. Must be less than pongWait.
-	pingPeriod = (PongWait * 9) / 10
+// 	// Send pings to peer with this period. Must be less than pongWait.
+// 	pingPeriod = (PongWait * 9) / 10
 
-	// Maximum message size allowed from peer.
-	maxMessageSize = 512
-)
+// 	// Maximum message size allowed from peer.
+// 	maxMessageSize = 512
+// )
+
+type WsConfig struct {
+	WriteWait, PongWait, pingPeriod time.Duration
+	MaxMessageSize                  int64
+}
 
 var (
 	newline = []byte{'\n'}
@@ -32,7 +37,8 @@ var (
 
 // Client is a middleman between the websocket connection and the hub.
 type Client struct {
-	hub IHub
+	hub    IHub
+	Config WsConfig
 
 	// The websocket connection.
 	conn *websocket.Conn
@@ -69,9 +75,9 @@ func (c *Client) ReadPump() {
 		c.hub.UnregisterChan() <- c
 		c.conn.Close()
 	}()
-	c.conn.SetReadLimit(maxMessageSize)
-	c.conn.SetReadDeadline(time.Now().Add(PongWait))
-	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(PongWait)); return nil })
+	c.conn.SetReadLimit(c.Config.MaxMessageSize)
+	c.conn.SetReadDeadline(time.Now().Add(c.Config.PongWait))
+	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(c.Config.PongWait)); return nil })
 	for {
 		_, message, err := c.conn.ReadMessage()
 		if err != nil {
@@ -98,7 +104,7 @@ func (c *Client) ReadPump() {
 // application ensures that there is at most one writer to a connection by
 // executing all writes from this goroutine.
 func (c *Client) WritePump() {
-	ticker := time.NewTicker(pingPeriod)
+	ticker := time.NewTicker(c.Config.pingPeriod)
 	defer func() {
 		fmt.Println("WritePump close")
 		ticker.Stop()
@@ -107,7 +113,7 @@ func (c *Client) WritePump() {
 	for {
 		select {
 		case message, ok := <-c.send:
-			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			c.conn.SetWriteDeadline(time.Now().Add(c.Config.WriteWait))
 			if !ok {
 				// The hub closed the channel.
 				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
@@ -131,7 +137,7 @@ func (c *Client) WritePump() {
 				return
 			}
 		case <-ticker.C:
-			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			c.conn.SetWriteDeadline(time.Now().Add(c.Config.WriteWait))
 			if err := c.conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
 				return
 			}
@@ -203,8 +209,17 @@ func DefaultUpgrader() websocket.Upgrader {
 	return upgrader
 }
 
+func DefaultWsConfig() WsConfig {
+	return WsConfig{
+		WriteWait:      10 * time.Second,
+		PongWait:       20 * time.Second,
+		MaxMessageSize: 4 * 1024,
+	}
+}
+
 // serveWs handles websocket requests from the peer.
-func ServeWs(hub IHub, w http.ResponseWriter, r *http.Request, clientKeyValues map[string]interface{}, upgrader websocket.Upgrader) {
+func ServeWs(hub IHub, w http.ResponseWriter, r *http.Request, clientKeyValues map[string]interface{}, upgrader websocket.Upgrader, config WsConfig) {
+	config.pingPeriod = (config.PongWait * 9) / 10
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println(err)
