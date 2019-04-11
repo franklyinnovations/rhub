@@ -12,6 +12,10 @@ func startServer() {
 	hub.On("leave", func(m *RedisHubMessage) {
 		fmt.Println("leave", *m)
 	})
+	hub.OnWs("im", func(m *ClientHubMessage) {
+		fmt.Println("ws receive im:", string(*m.Data))
+		hub.SendRedisRaw(m.HubMessageIn, m.Client.GetProps())
+	})
 	hub.On("im", func(m *RedisHubMessage) {
 		var str string
 		fmt.Println("im ", string(*m.Data))
