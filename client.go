@@ -72,7 +72,6 @@ func (c *Client) GetClient() *Client {
 // reads from this goroutine.
 func (c *Client) ReadPump() {
 	defer func() {
-		fmt.Println("ReadPump close")
 		c.hub.UnregisterChan() <- c
 		c.conn.Close()
 	}()
@@ -107,7 +106,6 @@ func (c *Client) ReadPump() {
 func (c *Client) WritePump() {
 	ticker := time.NewTicker(c.config.pingPeriod)
 	defer func() {
-		fmt.Println("WritePump close")
 		ticker.Stop()
 		c.conn.Close()
 	}()
