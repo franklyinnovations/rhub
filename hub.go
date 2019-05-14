@@ -89,7 +89,6 @@ func (h *Hub) Run() {
 			if nil != h.afterJoin {
 				h.afterJoin(client)
 			}
-			h.SendRedis("join", nil, client.GetProps())
 		case client := <-h.unregister:
 			// fmt.Println("Hub.unregister")
 			if _, ok := h.clients[client]; ok {
@@ -101,7 +100,6 @@ func (h *Hub) Run() {
 				if nil != h.afterLeave {
 					h.afterLeave(client)
 				}
-				h.SendRedis("leave", nil, client.GetProps())
 			}
 		case msg := <-h.redisMessage:
 			h.onRedisMessage(msg)

@@ -46,6 +46,12 @@ type User struct {
 
 func startServer() {
 	hub := NewHub(1, conf.Redis, "test-room-1")
+	hub.AfterJoin(func(c IClient) {
+		hub.SendRedis("join", nil, c.GetClient().GetProps())
+	})
+	hub.AfterLeave(func(c IClient) {
+		hub.SendRedis("leave", nil, c.GetClient().GetProps())
+	})
 	hub.On("join", func(m *RedisHubMessage) {
 		fmt.Println("join", *m)
 	})
