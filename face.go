@@ -104,6 +104,12 @@ type ClientHubMessage struct {
 	Client IClient
 }
 
+func NewHubMessageIn(subject string, data interface{}) *HubMessageIn {
+	j, _ := json.Marshal(data)
+	r := json.RawMessage(j)
+	return &HubMessageIn{Subject: subject, Data: &r}
+}
+
 func NewClientHubMessage(subject string, data interface{}, client IClient) *ClientHubMessage {
 	r := &ClientHubMessage{Client: client}
 	r.HubMessageIn = &HubMessageIn{Subject: subject}
